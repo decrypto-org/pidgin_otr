@@ -169,7 +169,7 @@ static void otrg_gtk_dialog_free_smp_data(PurpleConversation *conv)
     g_hash_table_remove(conv->data, "otr-smpdata");
 }
 
-static SMPData* otrg_gtk_dialog_add_smp_data(PurpleConversation *conv)
+static void otrg_gtk_dialog_add_smp_data(PurpleConversation *conv)
 {
     SMPData *smp_data = malloc(sizeof(SMPData));
     smp_data->smp_secret_dialog = NULL;
@@ -182,8 +182,6 @@ static SMPData* otrg_gtk_dialog_add_smp_data(PurpleConversation *conv)
     smp_data->their_instance = OTRL_INSTAG_BEST;
 
     purple_conversation_set_data(conv, "otr-smpdata", smp_data);
-
-    return smp_data;
 }
 
 static GtkWidget *otr_icon(GtkWidget *image, TrustLevel level,
@@ -213,7 +211,7 @@ static GtkWidget *otr_icon(GtkWidget *image, TrustLevel level,
     } else {
 	image = gtk_image_new_from_pixbuf(pixbuf);
     }
-    g_object_unref(G_OBJECT(pixbuf));
+    gdk_pixbuf_unref(pixbuf);
 
     gtk_widget_set_sensitive (image, sensitivity);
 
@@ -779,7 +777,7 @@ static GtkWidget *create_smp_dialog(const char *title, const char *primary,
      * will kill any existing SMP */
     if (smp_data->their_instance != context->their_instance) {
 	otrg_gtk_dialog_free_smp_data(conv);
-	smp_data = otrg_gtk_dialog_add_smp_data(conv);
+	otrg_gtk_dialog_add_smp_data(conv);
     }
 
     if (!(smp_data->smp_secret_dialog)) {
@@ -1442,6 +1440,8 @@ static void otrg_gtk_dialog_socialist_millionaires(ConnContext *context,
 	char *question, gboolean responder)
 {
     char *primary;
+    PurplePlugin *p;
+    char *proto_name;
 
     if (context == NULL) return;
 
@@ -1452,6 +1452,10 @@ static void otrg_gtk_dialog_socialist_millionaires(ConnContext *context,
 	primary = g_strdup_printf(_("Authenticate %s"),
 	    context->username);
     }
+
+    p = purple_find_prpl(context->protocol);
+    proto_name = (p && p->info->name) ? p->info->name : _("Unknown");
+
 
     create_smp_dialog(_("Authenticate Buddy"),
 	    primary, context, responder, question);
@@ -1789,6 +1793,28 @@ static gboolean button_pressed(GtkWidget *w, GdkEventButton *event,
 
     return FALSE;
 }
+
+/* DIKOMAS */
+static gboolean chat_button_start_pressed(GtkWidget *w, GdkEventButton *event,
+		gpointer data)
+{
+	//fprintf(stderr, "MPOTR: chat_button_pressed: start\n");
+	PurpleConversation *conv = data;
+	//otrg_plugin_chat_get_participants_cb(conv);
+	otrg_plugin_chat_send_query(conv);
+	return TRUE;
+}
+
+static gboolean chat_button_end_pressed(GtkWidget *w, GdkEventButton *event,
+		gpointer data)
+{
+	//fprintf(stderr, "MPOTR: chat_button_pressed: start\n");
+	PurpleConversation *conv = data;
+	//otrg_plugin_chat_get_participants_cb(conv);
+	otrg_plugin_chat_shutdown(conv);
+	return TRUE;
+}
+/* ******* */
 
 static void otrg_gtk_dialog_new_purple_conv(PurpleConversation *conv);
 
@@ -2887,8 +2913,46 @@ static void otrg_gtk_dialog_new_purple_conv(PurpleConversation *conv)
     gboolean * have_warned_instances;
     otrl_instag_t * last_received_instance;
 
+    /*
+     * DIKOMAS
+     */
+    if (purple_conversation_get_type(conv) == PURPLE_CONV_TYPE_CHAT) {
+    	bbox = gtkconv->tab_cont;
+
+    	/*button = gtk_button_new();
+    	gtk_box_pack_start(GTK_BOX(bbox), button, FALSE, FALSE, 0);
+    	bwbox = gtk_hbox_new(FALSE, 0);
+    	gtk_container_add(GTK_CONTAINER(button), bwbox);
+    	label = gtk_label_new("mpOTR");
+    	gtk_box_pack_start(GTK_BOX(bwbox), label, FALSE, FALSE, 0);*/
+
+    	/* See if we're already set up */
+    	button = purple_conversation_get_data(conv, "mpotr-button-start");
+    	if (!button) {
+    		button = gtk_button_new_with_label("mpOTR-Start");
+    		g_signal_connect(G_OBJECT(button), "button-press-event", G_CALLBACK(chat_button_start_pressed), conv);
+    		gtk_box_pack_start(GTK_BOX(bbox), button, FALSE, FALSE, 0);
+    		gtk_widget_show_all(button);
+    		purple_conversation_set_data(conv, "mpotr-button-start", button);
+    	}
+
+    	button = purple_conversation_get_data(conv, "mpotr-button-end");
+    	if (!button) {
+    		button = gtk_button_new_with_label("mpOTR-End");
+    		g_signal_connect(G_OBJECT(button), "button-press-event", G_CALLBACK(chat_button_end_pressed), conv);
+    		gtk_box_pack_start(GTK_BOX(bbox), button, FALSE, FALSE, 0);
+    		gtk_widget_show_all(button);
+    		purple_conversation_set_data(conv, "mpotr-button-end", button);
+    	}
+    	return;
+    }
+    /*
+     * mpOTR End
+    */
+
     /* Do nothing if this isn't an IM conversation */
-    if (purple_conversation_get_type(conv) != PURPLE_CONV_TYPE_IM) return;
+    if (purple_conversation_get_type(conv) != PURPLE_CONV_TYPE_IM)
+    		return;
 
     /* Get the prefs */
     account = purple_conversation_get_account(conv);
@@ -3314,3 +3378,4 @@ const OtrgDialogUiOps *otrg_gtk_dialog_get_ui_ops(void)
 {
     return &gtk_dialog_ui_ops;
 }
+

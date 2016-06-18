@@ -35,6 +35,8 @@
 #define STOREFNAME "otr.fingerprints"
 #define INSTAGFNAME "otr.instance_tags"
 #define MAXMSGSIZEFNAME "otr.max_message_size"
+#define CHATPRIVKEYFNAME "otr.chat_private_key" /* DIKOMAS */
+#define CHATFINGERFNAME "otr.chat_fingerprints" /* DIKOMAS */
 
 extern PurplePlugin *otrg_plugin_handle;
 
@@ -118,5 +120,13 @@ TrustLevel otrg_plugin_context_to_trust(ConnContext *context);
 
 /* Return 1 if the given protocol supports OTR, 0 otherwise. */
 int otrg_plugin_proto_supports_otr(const char *proto);
+
+
+/* DIKOMAS */
+// TODO change name to otrg_plugin_send_chat_query
+void otrg_plugin_chat_send_query(PurpleConversation *conv);
+void otrg_plugin_chat_shutdown(PurpleConversation *conv);
+//void otrg_plugin_chat_get_participants_cb(PurpleConversation *conv);
+/* ******* */
 
 #endif
