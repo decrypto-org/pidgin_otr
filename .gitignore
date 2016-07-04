@@ -1,0 +1,10 @@
+*.gmo
+*.in
+.cproject
+.project
+Debug
+configure
+autom4te.cache/
+.settings/
+.deps/
+*.m4
