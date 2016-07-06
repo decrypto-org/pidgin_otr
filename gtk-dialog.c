@@ -1806,11 +1806,11 @@ static void chat_label_refresh(char *text, char *color)
 			level == TRUST_PRIVATE ? _("Private") :
 			level == TRUST_UNVERIFIED ? _("Unverified") :
 			_("Not private"));*/
-	GtkWidget *label = purple_conversation_get_data(conv, "otr-label");
+	/*GtkWidget *label = purple_conversation_get_data(conv, "otr-label");
 	char *markup;
 	markup = g_strdup_printf(" <span color=\"%s\">%s</span>", color, text);
 	gtk_label_set_markup(GTK_LABEL(label), markup);
-	g_free(markup);
+	g_free(markup);*/
 }
 
 static void chat_menu_start_pressed(GtkWidget *widget, gpointer data)
