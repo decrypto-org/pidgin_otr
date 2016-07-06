@@ -1648,16 +1648,22 @@ static gboolean otr_plugin_load(PurplePlugin *handle)
     gchar *chatprivkeyfile = g_build_filename(purple_user_dir(), CHATPRIVKEYFNAME, NULL);
     FILE *chatprivf = g_fopen(chatprivkeyfile, "rb");
     g_free(chatprivkeyfile);
-    otrl_chat_privkeydh_read_FILEp(otrg_plugin_userstate, chatprivf);
-    if (chatprivf) fclose(chatprivf);
+    if(chatprivf) {
+    	otrl_chat_privkeydh_read_FILEp(otrg_plugin_userstate, chatprivf);
+    	fclose(chatprivf);
+	} else {
+		purple_debug_info("otr", "MPOTR: otr_plugin_load: error reading private keys file\n");
+	}
 
     gchar *chatfingerfile = g_build_filename(purple_user_dir(), CHATFINGERFNAME, NULL);
 	FILE *chatfingerf = g_fopen(chatfingerfile, "rb");
 	g_free(chatfingerfile);
-	otrl_chat_fingerprint_read_FILEp(otrg_plugin_userstate, chatfingerf);
-	if (chatfingerf) fclose(chatfingerf);
-
-
+	if(chatfingerf) {
+		otrl_chat_fingerprint_read_FILEp(otrg_plugin_userstate, chatfingerf);
+		fclose(chatfingerf);
+	} else {
+		purple_debug_info("otr", "MPOTR: otr_plugin_load: error reading trusted fingerprints file\n");
+	}
     /***********/
 
     purple_signal_connect(core_handle, "quitting", otrg_plugin_handle,
