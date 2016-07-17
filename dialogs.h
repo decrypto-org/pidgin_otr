@@ -82,6 +82,9 @@ typedef struct {
     void (*new_conv)(PurpleConversation *conv);
 
     void (*remove_conv)(PurpleConversation *conv);
+
+    void (*chat_gui_refresh)(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level); /* DIKOMAS */
+
 } OtrgDialogUiOps;
 
 /* Set the UI ops */
@@ -178,5 +181,8 @@ void otrg_dialog_new_conv(PurpleConversation *conv);
 
 /* Remove the per-conversation information display */
 void otrg_dialog_remove_conv(PurpleConversation *conv);
+
+/* DIKOMAS */
+void otrg_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level);
 
 #endif

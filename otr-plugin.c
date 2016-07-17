@@ -73,6 +73,7 @@ f *  Off-the-Record Messaging plugin for pidgin
 #include <libotr/chat_protocol.h> /* DIKOMAS */
 #include <libotr/chat_token.h>	/* DIKOMAS */
 #include <libotr/chat_privkeydh.h>	/* DIKOMAS */
+#include <libotr/chat_types.h> /* DIKOMAS */
 
 /* purple-otr headers */
 #include "ui.h"
@@ -142,6 +143,22 @@ void otrg_plugin_inject_message(PurpleAccount *account, const char *recipient,
 }
 
 /* DIKOMAS */
+int chat_token_to_chat_id(otrl_chat_token_t token)
+{
+	otrl_chat_token_t tmpToken;
+	int chat_id;
+
+	tmpToken = malloc(sizeof(int));
+	memcpy(tmpToken, token, sizeof(int));
+	for(unsigned int i = 0; i < sizeof(int) ; i++)
+		tmpToken[i]--;
+
+	memcpy(&chat_id, tmpToken, sizeof(int));
+	free(tmpToken);
+
+	return chat_id;
+}
+
 void otrg_plugin_inject_chat_message(PurpleAccount *account, const char *recipient,
 				     const char* message)
 {
@@ -210,6 +227,7 @@ char **chat_get_participants(const char *accountname, const char *protocol, int 
 
 char **chat_get_participants_cb(void *opdata, const char *accountname, const char *protocol, otrl_chat_token_t chat_token, unsigned int *size)
 {
+	/*
 	otrl_chat_token_t tmpToken;
 	int chat_id;
 
@@ -219,7 +237,9 @@ char **chat_get_participants_cb(void *opdata, const char *accountname, const cha
 		tmpToken[i]--;
 
 	memcpy(&chat_id, tmpToken, sizeof(int));
-	free(tmpToken);
+	free(tmpToken);*/
+
+	int chat_id = chat_token_to_chat_id(chat_token);
 
 	purple_debug_info("otr", "MPOTR: chat_get_participants_cb: chat_id: %d\n", chat_id);
 	return chat_get_participants(accountname, protocol, chat_id, size);
@@ -285,6 +305,34 @@ void chat_privkey_create_cb(void *opdata, const char *accountname, const char *p
 {
 	chat_privkey_create(accountname, protocol);
 }
+
+void chat_info_refresh(const OtrlChatInfo *info)
+{
+	PurpleConnection *conn;
+    PurpleAccount *account;
+    PurpleConversation *conv;
+	int chat_id = chat_token_to_chat_id(info->chat_token);
+
+    account = purple_accounts_find(info->accountname, info->protocol);
+    if (!account) { goto error; }
+
+    conn = purple_account_get_connection(account);
+    if(!conn) { goto error; }
+
+    conv = purple_find_chat(conn, chat_id);
+    if(!conv) { goto error; }
+
+    otrg_dialog_chat_gui_refresh(conv, info->level);
+
+error:
+	return;
+}
+
+void chat_info_refresh_cb(void *opdata, const OtrlChatInfo *info)
+{
+	chat_info_refresh(info);
+}
+
 /***********/
 
 /* Display a notification message for a particular accountname /
@@ -845,8 +893,9 @@ static OtrlMessageAppOps ui_ops = {
     NULL,		    /* convert_data */
     NULL,		    /* convert_data_free */
     timer_control_cb,
-    chat_get_participants_cb, /* DIKOMAS */
-    chat_privkey_create_cb /* DIKOMAS */
+    chat_get_participants_cb, 	/* DIKOMAS */
+    chat_privkey_create_cb, 	/* DIKOMAS */
+    chat_info_refresh_cb  		/* DIKOMAS */
 };
 
 /* Called by the glib main loop, as set up by stop_start_timer */

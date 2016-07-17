@@ -60,6 +60,7 @@
 #include <libotr/message.h>
 #include <libotr/userstate.h>
 #include <libotr/instag.h>
+#include <libotr/chat_types.h> /* DIKOMAS */
 
 /* purple-otr headers */
 #include "otr-plugin.h"
@@ -1795,7 +1796,8 @@ static gboolean button_pressed(GtkWidget *w, GdkEventButton *event,
 }
 
 /* DIKOMAS */
-static void chat_label_refresh(char *text, char *color)
+
+static void chat_label_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
 {
 
 	/*level == TRUST_FINISHED ? "#000000" :
@@ -1806,11 +1808,69 @@ static void chat_label_refresh(char *text, char *color)
 			level == TRUST_PRIVATE ? _("Private") :
 			level == TRUST_UNVERIFIED ? _("Unverified") :
 			_("Not private"));*/
-	/*GtkWidget *label = purple_conversation_get_data(conv, "otr-label");
-	char *markup;
-	markup = g_strdup_printf(" <span color=\"%s\">%s</span>", color, text);
+    GtkWidget *label;
+    char *markup;
+
+    purple_debug_info("otr", "MPOTR: chat_label_refresh: start\n");
+
+	label = purple_conversation_get_data(conv, "mpotr-label");
+	if(!label) { goto error; }
+
+	markup = g_strdup_printf(" <span color=\"%s\">%s</span>",
+		    level == LEVEL_FINISHED ? "#000000" :
+		    level == LEVEL_PRIVATE ? "#00a000" :
+		    level == LEVEL_IN_PROGRESS ? "#a06000" :
+		    "#ff0000",
+		    level == LEVEL_FINISHED ? _("Finished") :
+		    level == LEVEL_PRIVATE ? _("Private") :
+		    level == LEVEL_IN_PROGRESS ? _("In Progress") :
+		    _("Not private"));
+
 	gtk_label_set_markup(GTK_LABEL(label), markup);
-	g_free(markup);*/
+	g_free(markup);
+
+	purple_debug_info("otr", "MPOTR: chat_label_refresh: start\n");
+
+error:
+	return;
+}
+
+void chat_menu_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+{
+	GtkWidget *menustart, *menuend;
+
+	menustart = purple_conversation_get_data(conv, "mpotr-start");
+	if(!menustart) { goto error; }
+
+	menuend = purple_conversation_get_data(conv, "mpotr-end");
+	if(!menuend) { goto error; }
+
+	switch(level) {
+		case LEVEL_NONE:
+		case LEVEL_FINISHED:
+			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 1);
+			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 0);
+			break;
+
+		case LEVEL_IN_PROGRESS:
+			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 0);
+			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 0);
+			break;
+
+		case LEVEL_PRIVATE:
+			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 0);
+			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 1);
+			break;
+	}
+
+error:
+	return;
+}
+
+static void otrg_gtk_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+{
+	chat_label_refresh(conv, level);
+	chat_menu_refresh(conv, level);
 }
 
 static void chat_menu_start_pressed(GtkWidget *widget, gpointer data)
@@ -1844,6 +1904,7 @@ static gboolean chat_button_pressed(GtkWidget *w, GdkEventButton *event,
 
 	return TRUE;
 }
+
 /* ******* */
 
 static void otrg_gtk_dialog_new_purple_conv(PurpleConversation *conv);
@@ -2954,27 +3015,32 @@ static void chat_gtk_dialog_new_purple_conv(PurpleConversation *conv)
 		menu = gtk_menu_new();
 		gtk_menu_set_title(GTK_MENU(menu), _("OTR Messaging"));
 
-	    GtkWidget *buddymenuquery = gtk_menu_item_new_with_mnemonic(_("Start _private conversation"));
-	    GtkWidget *buddymenuend = gtk_menu_item_new_with_mnemonic(_("_End private conversation"));
+	    GtkWidget *menustart = gtk_menu_item_new_with_mnemonic(_("Start _private conversation"));
+	    GtkWidget *menuend = gtk_menu_item_new_with_mnemonic(_("_End private conversation"));
 	    gtk_container_foreach(GTK_CONTAINER(menu), destroy_menuitem, NULL);
-	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), buddymenuquery);
-	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), buddymenuend);
-	    gtk_widget_show(buddymenuquery);
-	    gtk_widget_show(buddymenuend);
+	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menustart);
+	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menuend);
+	    gtk_widget_show(menustart);
+	    gtk_widget_show(menuend);
 
 		purple_conversation_set_data(conv, "mpotr-label", label);
 		purple_conversation_set_data(conv, "mpotr-button", button);
+		purple_conversation_set_data(conv, "mpotr-start", menustart);
+		purple_conversation_set_data(conv, "mpotr-end", menuend);
 		purple_conversation_set_data(conv, "mpotr-icon", icon);
 		purple_conversation_set_data(conv, "mpotr-menu", menu);
 		g_signal_connect(G_OBJECT(button), "button-press-event",
 			G_CALLBACK(chat_button_pressed), conv);
-	    gtk_signal_connect(GTK_OBJECT(buddymenuquery), "activate",
+	    gtk_signal_connect(GTK_OBJECT(menustart), "activate",
 	    	GTK_SIGNAL_FUNC(chat_menu_start_pressed), conv);
-	    gtk_signal_connect(GTK_OBJECT(buddymenuend), "activate",
+	    gtk_signal_connect(GTK_OBJECT(menuend), "activate",
 	    	GTK_SIGNAL_FUNC(chat_menu_end_pressed), conv);
 
 
-
+	    GtkWidget *chatlist = gtkconv->u.chat->list;
+	    GtkWidget *label2 = gtk_label_new("test");
+	    gtk_box_pack_start(GTK_BOX(chatlist), label2, FALSE, FALSE, 0);
+	    gtk_widget_show_all(label2);
 		/*
 		button = gtk_button_new_with_label("mpOTR-Start");
 		g_signal_connect(G_OBJECT(button), "button-press-event", G_CALLBACK(chat_button_start_pressed), conv);
@@ -2993,6 +3059,8 @@ static void chat_gtk_dialog_new_purple_conv(PurpleConversation *conv)
 		gtk_widget_show_all(button);
 		purple_conversation_set_data(conv, "mpotr-button-end", button);
 	}*/
+
+	otrg_gtk_dialog_chat_gui_refresh(conv, LEVEL_NONE);
 }
 
 /***********/
@@ -3449,7 +3517,8 @@ static const OtrgDialogUiOps gtk_dialog_ui_ops = {
     otrg_gtk_dialog_finished,
     otrg_gtk_dialog_resensitize_all,
     otrg_gtk_dialog_new_conv,
-    otrg_gtk_dialog_remove_conv
+    otrg_gtk_dialog_remove_conv,
+    otrg_gtk_dialog_chat_gui_refresh /* DIKOMAS */
 };
 
 /* Get the GTK dialog UI ops */
