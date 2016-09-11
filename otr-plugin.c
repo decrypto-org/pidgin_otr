@@ -70,10 +70,14 @@ f *  Off-the-Record Messaging plugin for pidgin
 #include <libotr/message.h>
 #include <libotr/userstate.h>
 #include <libotr/instag.h>
-#include <libotr/chat_protocol.h> /* DIKOMAS */
-#include <libotr/chat_token.h>	/* DIKOMAS */
-#include <libotr/chat_privkeydh.h>	/* DIKOMAS */
-#include <libotr/chat_types.h> /* DIKOMAS */
+
+/* DIMOKAS */
+#include <libotr/chat_protocol.h>
+#include <libotr/chat_token.h>
+#include <libotr/chat_privkeydh.h>
+#include <libotr/chat_types.h>
+#include <libotr/chat_fingerprint.h>
+/* ******* */
 
 /* purple-otr headers */
 #include "ui.h"
@@ -145,37 +149,17 @@ void otrg_plugin_inject_message(PurpleAccount *account, const char *recipient,
 /* DIKOMAS */
 int chat_token_to_chat_id(otrl_chat_token_t token)
 {
-	otrl_chat_token_t tmpToken;
-	int chat_id;
-
-	tmpToken = malloc(sizeof(int));
-	memcpy(tmpToken, token, sizeof(int));
-	for(unsigned int i = 0; i < sizeof(int) ; i++)
-		tmpToken[i]--;
-
-	memcpy(&chat_id, tmpToken, sizeof(int));
-	free(tmpToken);
-
-	return chat_id;
+	return (int) token;
 }
 
-void otrg_plugin_inject_chat_message(PurpleAccount *account, const char *recipient,
-				     const char* message)
+void plugin_chat_inject_message(PurpleAccount *account, int chat_id, const char* message)
 {
     PurpleConnection *connection;
 
-    char id_buf[sizeof(int)];
-    int id;
-
-    memcpy( id_buf, recipient, sizeof(int));
-
-    for(unsigned int i =0; i<sizeof(int) ; i++)
-	id_buf[i]--;
-
-    memcpy(&id, id_buf, sizeof(int));
     connection = purple_account_get_connection(account);
-
     if (!connection) {
+    	//TODO error handling
+    	/*
         const char *protocol = purple_account_get_protocol_id(account);
         const char *accountname = purple_account_get_username(account);
         PurplePlugin *p = purple_find_prpl(protocol);
@@ -185,14 +169,25 @@ void otrg_plugin_inject_chat_message(PurpleAccount *account, const char *recipie
         otrg_dialog_notify_error(accountname, protocol, recipient,
                 _("Not connected"), msg, NULL);
         g_free(msg);
+        */
         return;
     }
 
-    serv_chat_send(connection, id, message, 0);
+    serv_chat_send(connection, chat_id, message, 0);
 }
-/*******/
 
-/* DIKOMAS */
+static void plugin_chat_inject_message_cb(void *opdata, const char *accountname,
+		const char *protocol, otrl_chat_token_t chat_token, const char *message)
+{
+	PurpleAccount *account;
+	int chat_id;
+
+	account = purple_accounts_find(accountname, protocol);
+	chat_id = chat_token_to_chat_id(chat_token);
+
+	plugin_chat_inject_message(account, chat_id, message);
+}
+
 char **chat_get_participants(const char *accountname, const char *protocol, int chat_id, unsigned int *size)
 {
 	PurpleAccount *account;
@@ -227,42 +222,10 @@ char **chat_get_participants(const char *accountname, const char *protocol, int 
 
 char **chat_get_participants_cb(void *opdata, const char *accountname, const char *protocol, otrl_chat_token_t chat_token, unsigned int *size)
 {
-	/*
-	otrl_chat_token_t tmpToken;
-	int chat_id;
-
-	tmpToken = malloc(sizeof(int));
-	memcpy(tmpToken, chat_token, sizeof(int));
-	for(unsigned int i = 0; i < sizeof(int) ; i++)
-		tmpToken[i]--;
-
-	memcpy(&chat_id, tmpToken, sizeof(int));
-	free(tmpToken);*/
-
 	int chat_id = chat_token_to_chat_id(chat_token);
-
-	purple_debug_info("otr", "MPOTR: chat_get_participants_cb: chat_id: %d\n", chat_id);
 	return chat_get_participants(accountname, protocol, chat_id, size);
 }
 
-/*
-char **otrg_plugin_chat_get_participants_cb(PurpleConversation *conv)
-{
-	PurpleAccount *account;
-	const char *accountname;
-	const char *protocol;
-	int chat_id;
-
-	account = purple_conversation_get_account(conv);
-	accountname = purple_account_get_username(account);
-	protocol = purple_account_get_protocol_id(account);
-	chat_id = purple_conv_chat_get_id(PURPLE_CONV_CHAT(conv));
-
-	chat_get_participants(accountname, protocol, chat_id);
-}*/
-/***********/
-
-/* DIKOMAS */
 void chat_privkey_create(const char *accountname, const char *protocol)
 {
 	//OtrgDialogWaitHandle waithandle;
@@ -306,6 +269,24 @@ void chat_privkey_create_cb(void *opdata, const char *accountname, const char *p
 	chat_privkey_create(accountname, protocol);
 }
 
+void chat_fingerprints_write()
+{
+	gchar *chatfingerfile = g_build_filename(purple_user_dir(), CHATFINGERFNAME, NULL);
+	FILE *chatfingerf = g_fopen(chatfingerfile, "wb");
+	g_free(chatfingerfile);
+	if(chatfingerf) {
+		otrl_chat_fingerprint_write_FILEp(otrg_plugin_userstate, chatfingerf);
+		fclose(chatfingerf);
+	} else {
+		purple_debug_info("otr", "MPOTR: otr_plugin_load: error reading trusted fingerprints file\n");
+	}
+}
+
+void chat_fingerprints_write_cb(void *opdata)
+{
+	chat_fingerprints_write();
+}
+
 void chat_info_refresh(const OtrlChatInfo *info)
 {
 	PurpleConnection *conn;
@@ -333,7 +314,7 @@ void chat_info_refresh_cb(void *opdata, const OtrlChatInfo *info)
 	chat_info_refresh(info);
 }
 
-/***********/
+/* ******* */
 
 /* Display a notification message for a particular accountname /
  * protocol / username conversation. */
@@ -495,10 +476,6 @@ static void inject_message_cb(void *opdata, const char *accountname,
 	const char *protocol, const char *recipient, const char *message)
 {
     PurpleAccount *account = purple_accounts_find(accountname, protocol);
-    int chat_flag = 0;
-
-    if(opdata)
-	chat_flag =  * (int*) opdata; // DIKOMAS
 
     if (!account) {
 	PurplePlugin *p = purple_find_prpl(protocol);
@@ -510,13 +487,8 @@ static void inject_message_cb(void *opdata, const char *accountname,
 	g_free(msg);
 	return;
     }
-    /* DIKOMAS */
-    if(chat_flag) {
-    	otrg_plugin_inject_chat_message(account, recipient, message);
-    }
-    else
-    /**********/
-        otrg_plugin_inject_message(account, recipient, message);
+
+    otrg_plugin_inject_message(account, recipient, message);
 }
 
 static void update_context_list_cb(void *opdata)
@@ -548,6 +520,18 @@ static void gone_insecure_cb(void *opdata, ConnContext *context)
 {
     otrg_dialog_disconnected(context);
 }
+
+/*
+ * DIKOMAS
+ */
+/*
+static void chat_gone_insecure_cb(void *opdata, OtrlChatContext *context)
+{
+
+    int id = chat_token_to_chat_id(token);
+
+    otrg_dialog_chat_disconnected(conv);
+}*/
 
 static void still_secure_cb(void *opdata, ConnContext *context, int is_reply)
 {
@@ -893,9 +877,14 @@ static OtrlMessageAppOps ui_ops = {
     NULL,		    /* convert_data */
     NULL,		    /* convert_data_free */
     timer_control_cb,
-    chat_get_participants_cb, 	/* DIKOMAS */
-    chat_privkey_create_cb, 	/* DIKOMAS */
-    chat_info_refresh_cb  		/* DIKOMAS */
+
+    /* DIKOMAS */
+    plugin_chat_inject_message_cb,
+    chat_get_participants_cb,
+    chat_privkey_create_cb,
+    chat_fingerprints_write_cb,
+    chat_info_refresh_cb
+    /* ******* */
 };
 
 /* Called by the glib main loop, as set up by stop_start_timer */
@@ -1055,9 +1044,13 @@ static gboolean process_receiving_im(PurpleAccount *account, char **who,
     return res;
 }
 
+/* DIKOMAS */
+
 /* Get PurpleConversation conv's chat_token */
 otrl_chat_token_t otrg_plugin_conv_to_chat_token(PurpleConversation *conv)
 {
+    return (otrl_chat_token_t) purple_conv_chat_get_id(conv->u.chat);
+    /*
     otrl_chat_token_t chat_token;
     int id;
     if(!conv || ! conv->data) {
@@ -1076,6 +1069,7 @@ otrl_chat_token_t otrg_plugin_conv_to_chat_token(PurpleConversation *conv)
 	chat_token[i]++;
 
     return chat_token;
+    */
 }
 
 static gboolean process_receiving_chat(PurpleAccount *account, char **who,
@@ -1159,13 +1153,24 @@ static gboolean process_sending_chat(PurpleAccount *account, char **message,
 	return 0;
 }
 
+
+void otrg_plugin_chat_verify_fingerprint(OtrlChatFingerprint *fnprnt)
+{
+	otrl_chat_fingerprint_verify(otrg_plugin_userstate, &ui_ops, fnprnt);
+}
+
+void otrg_plugin_chat_forget_fingerprint(OtrlChatFingerprint *fnprnt)
+{
+	otrl_chat_fingerprint_forget(otrg_plugin_userstate, &ui_ops, fnprnt);
+}
+
 void otrg_plugin_chat_send_query(PurpleConversation *conv)
 {
 	PurpleAccount *account;
 	const char *accountname;
 	const char *protocol;
 	otrl_chat_token_t chat_token;
-	int res;
+	int err;
 
 	account = purple_conversation_get_account(conv);
 	accountname = purple_account_get_username(account);
@@ -1173,8 +1178,12 @@ void otrg_plugin_chat_send_query(PurpleConversation *conv)
 
 	chat_token = otrg_plugin_conv_to_chat_token(conv);
 
-	res = otrl_chat_protocol_send_query(otrg_plugin_userstate,
+	err = otrl_chat_protocol_send_query(otrg_plugin_userstate,
 			&ui_ops, accountname, protocol, chat_token, OTRL_FRAGMENT_SEND_ALL_BUT_LAST);
+
+	if(err) {
+		purple_debug_info("otr", "MPOTR: otrg_plugin_chat_send_query: error sending query\n");
+	}
 }
 
 void otrg_plugin_chat_shutdown(PurpleConversation *conv)
@@ -1183,7 +1192,7 @@ void otrg_plugin_chat_shutdown(PurpleConversation *conv)
 	const char *accountname;
 	const char *protocol;
 	otrl_chat_token_t chat_token;
-	int res;
+	int err;
 
 	account = purple_conversation_get_account(conv);
 	accountname = purple_account_get_username(account);
@@ -1191,9 +1200,15 @@ void otrg_plugin_chat_shutdown(PurpleConversation *conv)
 
 	chat_token = otrg_plugin_conv_to_chat_token(conv);
 
-	res = otrl_chat_protocol_shutdown(otrg_plugin_userstate, &ui_ops,
+	err = otrl_chat_protocol_shutdown(otrg_plugin_userstate, &ui_ops,
 			accountname, protocol, chat_token);
+
+	if(err) {
+		purple_debug_info("otr", "MPOTR: otrg_plugin_chat_send_query: error sending shutdown\n");
+	}
 }
+
+/* ******* */
 
 /* Find the ConnContext appropriate to a given PurpleConversation. */
 ConnContext *otrg_plugin_conv_to_context(PurpleConversation *conv,
@@ -1256,7 +1271,7 @@ ConnContext* otrg_plugin_conv_to_selected_context(PurpleConversation *conv,
 static void process_conv_create(PurpleConversation *conv)
 {
     otrl_instag_t * selected_instance;
-    otrl_chat_token_t conversation_token;
+    //otrl_chat_token_t conversation_token;
     OtrlMessageEvent * msg_event;
     if (!conv) return;
 
@@ -1269,20 +1284,20 @@ static void process_conv_create(PurpleConversation *conv)
     	purple_conversation_set_data(conv, "otr-ui_selected_ctx",
 	    (gpointer)selected_instance);
     }
-    else if(conv->type == PURPLE_CONV_TYPE_CHAT) { /* DIKOMAS */
-	int id = purple_conv_chat_get_id(PURPLE_CONV_CHAT(conv));
-	conversation_token = g_malloc(sizeof(int) + 1); //plus one for null byte
-	if(!conversation_token) {
-		/* TODO: Dimitris: manage this case */
-		purple_debug_info("otr", "MPOTR: process_conv_create: !conversation_token\n");
-	}
-	memcpy(conversation_token, &id, sizeof(int));
-	for(unsigned int i=0; i<sizeof(int); i++)
-		conversation_token[i] += 1;
-	conversation_token[sizeof(int)] = '\0';
-	purple_conversation_set_data(conv, "otr-ui_chat_token",
-	    (gpointer) conversation_token);
-    }
+    //else if(conv->type == PURPLE_CONV_TYPE_CHAT) { /* DIKOMAS */
+	//int id = purple_conv_chat_get_id(PURPLE_CONV_CHAT(conv));
+	//conversation_token = g_malloc(sizeof(int) + 1); //plus one for null byte
+	//if(!conversation_token) {
+	//	/* TODO: Dimitris: manage this case */
+	//	purple_debug_info("otr", "MPOTR: process_conv_create: !conversation_token\n");
+	//}
+	//memcpy(conversation_token, &id, sizeof(int));
+	//for(unsigned int i=0; i<sizeof(int); i++)
+	//	conversation_token[i] += 1;
+	//conversation_token[sizeof(int)] = '\0';
+	//purple_conversation_set_data(conv, "otr-ui_chat_token",
+	//    (gpointer) conversation_token);
+    //}
     /********/
 
 
@@ -1326,8 +1341,8 @@ static void process_conv_destroyed(PurpleConversation *conv)
 	    purple_conversation_get_data(conv, "otr-ui_selected_ctx");
     OtrlMessageEvent * msg_event =
 	    purple_conversation_get_data(conv, "otr-last_msg_event");
-    otrl_chat_token_t  conversation_token =
-            purple_conversation_get_data(conv, "otr-ui_conversation_token");
+    //otrl_chat_token_t  conversation_token =
+    //        purple_conversation_get_data(conv, "otr-ui_conversation_token");
 
     if (selected_instance) {
 	g_free(selected_instance);
@@ -1337,13 +1352,13 @@ static void process_conv_destroyed(PurpleConversation *conv)
 	g_free(msg_event);
     }
 
-    if(conversation_token) {
-        g_free(conversation_token);
-    }
+    //if(conversation_token) {
+    //    g_free(conversation_token);
+    //}
 
     g_hash_table_remove(conv->data, "otr-ui_selected_ctx");
     g_hash_table_remove(conv->data, "otr-last_msg_event");
-    g_hash_table_remove(conv->data, "otr-ui_conversation_token");
+    //g_hash_table_remove(conv->data, "otr-ui_conversation_token");
 }
 
 static void process_connection_change(PurpleConnection *conn, void *data)
@@ -1713,7 +1728,7 @@ static gboolean otr_plugin_load(PurplePlugin *handle)
 	} else {
 		purple_debug_info("otr", "MPOTR: otr_plugin_load: error reading trusted fingerprints file\n");
 	}
-    /***********/
+	/* ******* */
 
     purple_signal_connect(core_handle, "quitting", otrg_plugin_handle,
 	    PURPLE_CALLBACK(process_quitting), NULL);
@@ -1721,12 +1736,16 @@ static gboolean otr_plugin_load(PurplePlugin *handle)
 	    PURPLE_CALLBACK(process_sending_im), NULL);
     purple_signal_connect(conv_handle, "receiving-im-msg", otrg_plugin_handle,
 	    PURPLE_CALLBACK(process_receiving_im), NULL);
-    purple_signal_connect(conv_handle, "receiving-chat-msg", otrg_plugin_handle,	/* DIKOMAS */
+
+    /* DIKOMAS */
+    purple_signal_connect(conv_handle, "receiving-chat-msg", otrg_plugin_handle,
         PURPLE_CALLBACK(process_receiving_chat), NULL);
-    purple_signal_connect(conv_handle, "sending-chat-msg", otrg_plugin_handle,		/* DIKOMAS */
+    purple_signal_connect(conv_handle, "sending-chat-msg", otrg_plugin_handle,
         PURPLE_CALLBACK(process_sending_chat), NULL);
-    purple_signal_connect(conv_handle, "writing-chat-msg", otrg_plugin_handle,		/* DIKOMAS */
+    purple_signal_connect(conv_handle, "writing-chat-msg", otrg_plugin_handle,
 	PURPLE_CALLBACK(process_writing_chat), NULL);
+    /* ******* */
+
     purple_signal_connect(conv_handle, "conversation-updated",
 	    otrg_plugin_handle, PURPLE_CALLBACK(process_conv_updated), NULL);
     purple_signal_connect(conv_handle, "conversation-created",
@@ -1768,10 +1787,14 @@ static gboolean otr_plugin_unload(PurplePlugin *handle)
 	    otrg_plugin_handle, PURPLE_CALLBACK(process_sending_im));
     purple_signal_disconnect(conv_handle, "receiving-im-msg",
 	    otrg_plugin_handle, PURPLE_CALLBACK(process_receiving_im));
-    purple_signal_disconnect(conv_handle, "sending-chat-msg",		/* DIKOMAS */
+
+    /* DIMOKAS */
+    purple_signal_disconnect(conv_handle, "sending-chat-msg",
 	    otrg_plugin_handle, PURPLE_CALLBACK(process_sending_chat));
-    purple_signal_disconnect(conv_handle, "receiving-chat-msg",		/* DIMOKAS */
+    purple_signal_disconnect(conv_handle, "receiving-chat-msg",
 	    otrg_plugin_handle, PURPLE_CALLBACK(process_receiving_chat));
+    /* ******* */
+
     purple_signal_disconnect(conv_handle, "conversation-updated",
 	    otrg_plugin_handle, PURPLE_CALLBACK(process_conv_updated));
     purple_signal_disconnect(conv_handle, "conversation-created",

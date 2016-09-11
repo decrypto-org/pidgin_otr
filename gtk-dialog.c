@@ -60,7 +60,12 @@
 #include <libotr/message.h>
 #include <libotr/userstate.h>
 #include <libotr/instag.h>
-#include <libotr/chat_types.h> /* DIKOMAS */
+
+/* DIKOMAS */
+#include <libotr/chat_types.h>
+#include <libotr/list.h>
+#include <libotr/chat_fingerprint.h>
+/* ******* */
 
 /* purple-otr headers */
 #include "otr-plugin.h"
@@ -1797,21 +1802,191 @@ static gboolean button_pressed(GtkWidget *w, GdkEventButton *event,
 
 /* DIKOMAS */
 
-static void chat_label_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+enum
 {
+   SCREENNAME_COLUMN,
+   VERIFIED_COLUMN,
+   FINGERPRINT_COLUMN,
+   ACCOUNT_COLUMN,
+   POINTER_COLUMN,
+   N_COLUMNS
+};
 
-	/*level == TRUST_FINISHED ? "#000000" :
-			level == TRUST_PRIVATE ? "#00a000" :
-			level == TRUST_UNVERIFIED ? "#a06000" :
-			"#ff0000",
-			level == TRUST_FINISHED ? _("Finished") :
-			level == TRUST_PRIVATE ? _("Private") :
-			level == TRUST_UNVERIFIED ? _("Unverified") :
-			_("Not private"));*/
+static void otrg_gtk_dialog_chat_load_fingerprints_list_data(GtkListStore *store)
+{
+	OtrlList *finger_list;
+	OtrlListNode *finger_list_node;
+	OtrlChatFingerprint *fnprnt;
+	GtkTreeIter iter;
+
+	gtk_list_store_clear (store);
+
+	finger_list = otrg_plugin_userstate->chat_fingerprints;
+
+	//TODO check if finger_list is NULL ????
+	for(finger_list_node = finger_list->head; finger_list_node != NULL; finger_list_node = finger_list_node->next) {
+		fnprnt = finger_list_node->payload;
+		gtk_list_store_append (store, &iter);  /* Acquire an iterator */
+		gtk_list_store_set (store, &iter,
+								SCREENNAME_COLUMN, fnprnt->accountname,
+								VERIFIED_COLUMN, (fnprnt->isTrusted)? TRUE : FALSE,
+								ACCOUNT_COLUMN, fnprnt->username,
+								FINGERPRINT_COLUMN, otrl_chat_fingerprint_bytes_to_hex(fnprnt->fingerprint), /* TODO remember to free this */
+								POINTER_COLUMN, fnprnt,
+			                    -1);
+	}
+}
+
+static void otrg_gtk_dialog_chat_fingerprint_verify_clicked(GtkTreeView *tree_view, gpointer user_data)
+{
+	//purple_debug_info("otr", "MPOTR: chat_fingerprint_verify_clicked: start\n");
+
+	GtkTreeSelection *tree_selection;
+	GtkTreeModel *tree_model;
+	GtkTreeIter iter;
+	gboolean res;
+
+	tree_selection = gtk_tree_view_get_selection(tree_view);
+
+	res = gtk_tree_selection_get_selected(tree_selection, &tree_model, &iter);
+
+	if(res == TRUE) {
+		GValue value = {0,};
+		gtk_tree_model_get_value(tree_model, &iter, POINTER_COLUMN, &value);
+		gpointer finger_ptr = g_value_get_pointer(&value);
+		otrg_plugin_chat_verify_fingerprint(finger_ptr);
+		otrg_gtk_dialog_chat_load_fingerprints_list_data(GTK_LIST_STORE(tree_model));
+		g_value_unset(&value);
+	}
+}
+
+static void otrg_gtk_dialog_chat_fingerprint_forget_clicked(GtkTreeView *tree_view, gpointer user_data)
+{
+	GtkTreeSelection *tree_selection;
+	GtkTreeModel *tree_model;
+	GtkTreeIter iter;
+	gboolean res;
+
+	tree_selection = gtk_tree_view_get_selection(tree_view);
+
+	res = gtk_tree_selection_get_selected(tree_selection, &tree_model, &iter);
+
+	if(res == TRUE) {
+		GValue value = {0,};
+		gtk_tree_model_get_value(tree_model, &iter, POINTER_COLUMN, &value);
+		gpointer finger_ptr = g_value_get_pointer(&value);
+		otrg_plugin_chat_forget_fingerprint(finger_ptr);
+		otrg_gtk_dialog_chat_load_fingerprints_list_data(GTK_LIST_STORE(tree_model));
+		g_value_unset(&value);
+	}
+}
+
+static GtkWidget * otrg_gtk_dialog_chat_fingerprints_window_open()
+{
+	GtkWidget *dialog;
+	GtkWidget *vbox;
+	GtkWidget *buttons_inner_hbox, *buttons_outer_hbox;
+	GtkWidget *verify_button, *forget_button;
+	GtkWidget *label;
+	char *label_text;
+
+	// Fingerprints Model
+    GtkListStore *store;
+    GtkWidget *tree;
+    GtkTreeViewColumn *column;
+    GtkCellRenderer *renderer;
+
+	store = gtk_list_store_new (N_COLUMNS,       /* Total number of columns */
+								  G_TYPE_STRING,   /* Screename               */
+								  G_TYPE_BOOLEAN,  /* Is Verified?            */
+								  G_TYPE_STRING,   /* Fingerprint             */
+								  G_TYPE_STRING,   /* Account                 */
+								  G_TYPE_POINTER); /* The pointer to the actual fingerprint */
+
+	otrg_gtk_dialog_chat_load_fingerprints_list_data(store);
+
+	// Fingerprints
+	tree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
+	g_object_unref (G_OBJECT (store));
+
+	renderer = gtk_cell_renderer_text_new();
+	column = gtk_tree_view_column_new_with_attributes (_("Screenname"), renderer, "text", SCREENNAME_COLUMN, NULL);
+	gtk_tree_view_append_column (GTK_TREE_VIEW (tree), column);
+
+	renderer = gtk_cell_renderer_toggle_new();
+	column = gtk_tree_view_column_new_with_attributes (_("Verified"), renderer, "active", VERIFIED_COLUMN,  NULL);
+	gtk_tree_view_append_column (GTK_TREE_VIEW (tree), column);
+
+	renderer = gtk_cell_renderer_text_new();
+	column = gtk_tree_view_column_new_with_attributes (_("Account"), renderer, "text", ACCOUNT_COLUMN,  NULL);
+	gtk_tree_view_append_column (GTK_TREE_VIEW (tree), column);
+
+	renderer = gtk_cell_renderer_text_new();
+	column = gtk_tree_view_column_new_with_attributes (_("Fingerprint"), renderer, "text", FINGERPRINT_COLUMN,  NULL);
+	gtk_tree_view_append_column (GTK_TREE_VIEW (tree), column);
+
+	// Buttons
+	verify_button = gtk_button_new_with_label(_("Verify"));
+	g_signal_connect_swapped(verify_button, "clicked", G_CALLBACK(otrg_gtk_dialog_chat_fingerprint_verify_clicked), tree);
+
+	forget_button = gtk_button_new_with_label(_("Forget"));
+	g_signal_connect_swapped(forget_button, "clicked", G_CALLBACK(otrg_gtk_dialog_chat_fingerprint_forget_clicked), tree);
+
+	buttons_inner_hbox = gtk_hbox_new(FALSE, 0);
+
+	gtk_box_pack_start (GTK_BOX (buttons_inner_hbox), verify_button, FALSE, FALSE, 0);
+	gtk_box_pack_start (GTK_BOX (buttons_inner_hbox), forget_button, FALSE, FALSE, 0);
+
+	buttons_outer_hbox = gtk_hbox_new(FALSE, 0);
+	gtk_box_pack_start (GTK_BOX (buttons_outer_hbox), buttons_inner_hbox, TRUE, FALSE, 0);
+
+	dialog = gtk_dialog_new_with_buttons(_("mpOTR Fingerprints"), NULL, 0, GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE, NULL);
+
+	gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
+
+	g_signal_connect_swapped (dialog, "response", G_CALLBACK (gtk_widget_destroy), dialog);
+
+	vbox = gtk_vbox_new(FALSE, 0);
+	gtk_window_set_focus_on_map(GTK_WINDOW(dialog), FALSE);
+	gtk_window_set_role(GTK_WINDOW(dialog), "notify_dialog");
+
+	gtk_container_set_border_width(GTK_CONTAINER(dialog), 6);
+	gtk_window_set_resizable(GTK_WINDOW(dialog), TRUE);
+	gtk_dialog_set_has_separator(GTK_DIALOG(dialog), FALSE);
+	gtk_box_set_spacing(GTK_BOX(GTK_DIALOG(dialog)->vbox), 12);
+	gtk_container_set_border_width(GTK_CONTAINER(GTK_DIALOG(dialog)->vbox),
+		6);
+	gtk_container_add(GTK_CONTAINER(GTK_DIALOG(dialog)->vbox), vbox);
+
+	label_text = g_strdup_printf(
+		"<span weight=\"bold\" size=\"larger\">%s</span>\n\n%s",
+		"",
+		_("Authenticating a buddy helps ensure that the person "
+		"you are talking to is who he or she claims to be."));
+
+	label = gtk_label_new(NULL);
+	gtk_label_set_markup(GTK_LABEL(label), label_text);
+	gtk_label_set_selectable(GTK_LABEL(label), FALSE);
+	g_free(label_text);
+	gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+	gtk_misc_set_alignment(GTK_MISC(label), 0, 0);
+
+
+
+	gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), tree, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), buttons_outer_hbox, FALSE, FALSE, 0);
+
+	gtk_widget_show_all(dialog);
+
+	return dialog;
+}
+
+
+static void otrg_gtk_dialog_chat_label_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+{
     GtkWidget *label;
     char *markup;
-
-    purple_debug_info("otr", "MPOTR: chat_label_refresh: start\n");
 
 	label = purple_conversation_get_data(conv, "mpotr-label");
 	if(!label) { goto error; }
@@ -1819,23 +1994,21 @@ static void chat_label_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLeve
 	markup = g_strdup_printf(" <span color=\"%s\">%s</span>",
 		    level == LEVEL_FINISHED ? "#000000" :
 		    level == LEVEL_PRIVATE ? "#00a000" :
-		    level == LEVEL_IN_PROGRESS ? "#a06000" :
+		    level == LEVEL_UNVERIFIED ? "#a06000" :
 		    "#ff0000",
 		    level == LEVEL_FINISHED ? _("Finished") :
 		    level == LEVEL_PRIVATE ? _("Private") :
-		    level == LEVEL_IN_PROGRESS ? _("In Progress") :
+		    level == LEVEL_UNVERIFIED ? _("Unverified") :
 		    _("Not private"));
 
 	gtk_label_set_markup(GTK_LABEL(label), markup);
 	g_free(markup);
 
-	purple_debug_info("otr", "MPOTR: chat_label_refresh: start\n");
-
 error:
 	return;
 }
 
-void chat_menu_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+void otrg_gtk_dialog_chat_menu_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
 {
 	GtkWidget *menustart, *menuend;
 
@@ -1851,12 +2024,7 @@ void chat_menu_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
 			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 1);
 			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 0);
 			break;
-
-		case LEVEL_IN_PROGRESS:
-			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 0);
-			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 0);
-			break;
-
+		case LEVEL_UNVERIFIED:
 		case LEVEL_PRIVATE:
 			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 0);
 			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 1);
@@ -1867,31 +2035,27 @@ error:
 	return;
 }
 
-static void otrg_gtk_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
-{
-	chat_label_refresh(conv, level);
-	chat_menu_refresh(conv, level);
-}
-
-static void chat_menu_start_pressed(GtkWidget *widget, gpointer data)
+static void otrg_gtk_dialog_chat_menu_start_pressed(GtkWidget *widget, gpointer data)
 {
     PurpleConversation *conv = data;
     otrg_plugin_chat_send_query(conv);
 }
 
-static void chat_menu_end_pressed(GtkWidget *widget, gpointer data)
+static void otrg_gtk_dialog_chat_menu_end_pressed(GtkWidget *widget, gpointer data)
 {
     PurpleConversation *conv = data;
     otrg_plugin_chat_shutdown(conv);
 }
 
-static gboolean chat_button_pressed(GtkWidget *w, GdkEventButton *event,
+static void otrg_gtk_dialog_chat_menu_fingerprints_pressed(GtkWidget *widget, gpointer data)
+{
+	otrg_gtk_dialog_chat_fingerprints_window_open();
+}
+
+static gboolean otrg_gtk_dialog_chat_button_pressed(GtkWidget *w, GdkEventButton *event,
 		gpointer data)
 {
 	PurpleConversation *conv = data;
-	//otrg_plugin_chat_get_participants_cb(conv);
-
-	//otrg_plugin_chat_send_query(conv);
 
     /* Any button will do */
     if (event->type == GDK_BUTTON_PRESS) {
@@ -1903,6 +2067,12 @@ static gboolean chat_button_pressed(GtkWidget *w, GdkEventButton *event,
     }
 
 	return TRUE;
+}
+
+static void otrg_gtk_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+{
+	otrg_gtk_dialog_chat_label_refresh(conv, level);
+	otrg_gtk_dialog_chat_menu_refresh(conv, level);
 }
 
 /* ******* */
@@ -3017,24 +3187,30 @@ static void chat_gtk_dialog_new_purple_conv(PurpleConversation *conv)
 
 	    GtkWidget *menustart = gtk_menu_item_new_with_mnemonic(_("Start _private conversation"));
 	    GtkWidget *menuend = gtk_menu_item_new_with_mnemonic(_("_End private conversation"));
+	    GtkWidget *menufinger = gtk_menu_item_new_with_mnemonic(_("_Verify participants"));
 	    gtk_container_foreach(GTK_CONTAINER(menu), destroy_menuitem, NULL);
 	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menustart);
 	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menuend);
+	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menufinger);
 	    gtk_widget_show(menustart);
 	    gtk_widget_show(menuend);
+	    gtk_widget_show(menufinger);
 
 		purple_conversation_set_data(conv, "mpotr-label", label);
 		purple_conversation_set_data(conv, "mpotr-button", button);
 		purple_conversation_set_data(conv, "mpotr-start", menustart);
 		purple_conversation_set_data(conv, "mpotr-end", menuend);
+		purple_conversation_set_data(conv, "mpotr-menufinger", menufinger);
 		purple_conversation_set_data(conv, "mpotr-icon", icon);
 		purple_conversation_set_data(conv, "mpotr-menu", menu);
 		g_signal_connect(G_OBJECT(button), "button-press-event",
-			G_CALLBACK(chat_button_pressed), conv);
+			G_CALLBACK(otrg_gtk_dialog_chat_button_pressed), conv);
 	    gtk_signal_connect(GTK_OBJECT(menustart), "activate",
-	    	GTK_SIGNAL_FUNC(chat_menu_start_pressed), conv);
+	    	GTK_SIGNAL_FUNC(otrg_gtk_dialog_chat_menu_start_pressed), conv);
 	    gtk_signal_connect(GTK_OBJECT(menuend), "activate",
-	    	GTK_SIGNAL_FUNC(chat_menu_end_pressed), conv);
+	    	GTK_SIGNAL_FUNC(otrg_gtk_dialog_chat_menu_end_pressed), conv);
+	    gtk_signal_connect(GTK_OBJECT(menufinger), "activate",
+	    	GTK_SIGNAL_FUNC(otrg_gtk_dialog_chat_menu_fingerprints_pressed), conv);
 
 
 	    GtkWidget *chatlist = gtkconv->u.chat->list;
@@ -3095,7 +3271,7 @@ static void otrg_gtk_dialog_new_purple_conv(PurpleConversation *conv)
     	chat_gtk_dialog_new_purple_conv(conv);
     	return;
     }
-    /***********/
+    /* ******* */
 
     /* Do nothing if this isn't an IM conversation */
     if (purple_conversation_get_type(conv) != PURPLE_CONV_TYPE_IM)
