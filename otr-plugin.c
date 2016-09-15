@@ -152,9 +152,38 @@ int chat_token_to_chat_id(otrl_chat_token_t token)
 	return (int) token;
 }
 
-void plugin_chat_inject_message(PurpleAccount *account, int chat_id, const char* message)
+PurpleConversation *chat_info_to_purple_conversation(const OtrlChatInfo *info)
+{
+	PurpleAccount *account;
+	PurpleConnection *connection;
+	PurpleConversation *conv;
+	int chat_id;
+
+	account = purple_accounts_find(info->accountname, info->protocol);
+	if(!account) { goto error; }
+
+	connection = purple_account_get_connection(account);
+	if(!connection) { goto error; }
+
+	chat_id = chat_token_to_chat_id(info->chat_token);
+
+	conv = purple_find_chat(connection, chat_id);
+	if(!conv) { goto error; }
+
+	return conv;
+
+error:
+	return NULL;
+}
+
+void plugin_chat_inject_message(const OtrlChatInfo *info, const char *message)
 {
     PurpleConnection *connection;
+	PurpleAccount *account;
+	int chat_id;
+
+	account = purple_accounts_find(info->accountname, info->protocol);
+	chat_id = chat_token_to_chat_id(info->chat_token);
 
     connection = purple_account_get_connection(account);
     if (!connection) {
@@ -176,54 +205,150 @@ void plugin_chat_inject_message(PurpleAccount *account, int chat_id, const char*
     serv_chat_send(connection, chat_id, message, 0);
 }
 
-static void plugin_chat_inject_message_cb(void *opdata, const char *accountname,
-		const char *protocol, otrl_chat_token_t chat_token, const char *message)
+static void plugin_chat_inject_message_cb(void *opdata, const OtrlChatInfo *info, const char *message)
 {
-	PurpleAccount *account;
-	int chat_id;
-
-	account = purple_accounts_find(accountname, protocol);
-	chat_id = chat_token_to_chat_id(chat_token);
-
-	plugin_chat_inject_message(account, chat_id, message);
+	plugin_chat_inject_message(info , message);
 }
 
-char **chat_get_participants(const char *accountname, const char *protocol, int chat_id, unsigned int *size)
+
+int chat_display_notification(const OtrlChatInfo *info, const char *notification)
 {
-	PurpleAccount *account;
-	PurpleConnection *connection;
 	PurpleConversation *conv;
-	GList *l;
-	char **res;
+
+	conv = chat_info_to_purple_conversation(info);
+	if(!conv) { goto error; }
+
+	purple_conversation_write(conv, NULL, notification, PURPLE_MESSAGE_SYSTEM, time(NULL));
+
+	return 0;
+
+error:
+	purple_debug_info("otr", "MPOTR: chat_display_notification: error\n");
+	return 1;
+}
+
+void chat_display_notification_cb(void *opdata, const OtrlChatInfo *info, const char *notification)
+{
+	chat_display_notification(info, notification);
+}
+
+int chat_handle_event_with_notifiaction(const OtrlChatInfo *info, const OtrlChatEvent *event)
+{
+	OtrlChatEventConsensusParticipantData *part_data;
+	gchar *msg = NULL;
+	int err;
+
+	switch(event->type) {
+			case  OTRL_CHAT_EVENT_STARTING:
+				msg = g_strdup_printf (_("Initializing a new private chat session."));
+				if(!msg) { goto error; }
+				break;
+			case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_OK:
+				part_data = event->data;
+				msg = g_strdup_printf (_("You have met consensus with %s."), part_data->username);
+				if(!msg) { goto error; }
+				break;
+			case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_BROKEN:
+				part_data = event->data;
+				msg = g_strdup_printf (_("You have NOT met consensus with %s."), part_data->username);
+				if(!msg) { goto error; }
+				break;
+			case  OTRL_CHAT_EVENT_CONSENSUS_OK:
+				msg = g_strdup_printf (_("Consensus of the private chat session was OK."));
+				if(!msg) { goto error; }
+				break;
+			case  OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
+				msg = g_strdup_printf (_("Consensus of the private char session was BROKEN."));
+				if(!msg) { goto error; }
+				break;
+			default:
+				goto error;
+	}
+
+	err = chat_display_notification(info, msg);
+	if(err) { goto error_with_msg; }
+
+	g_free(msg);
+
+	return 0;
+
+error_with_msg:
+	g_free(msg);
+error:
+	return 1;
+}
+
+void chat_handle_event(const OtrlChatInfo *info, const OtrlChatEvent *event)
+{
+	switch(event->type) {
+		case  OTRL_CHAT_EVENT_STARTING:
+		case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_OK:
+		case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_BROKEN:
+		case  OTRL_CHAT_EVENT_CONSENSUS_OK:
+		case  OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
+			chat_handle_event_with_notifiaction(info, event);
+			break;
+		default:
+			return;
+	}
+}
+
+void chat_handle_event_cb(void *odata, const OtrlChatInfo *info, const OtrlChatEvent *event)
+{
+	chat_handle_event(info, event);
+}
+
+char **chat_get_participants(const OtrlChatInfo *info, unsigned int *size)
+{
+	PurpleConversation *conv;
+	GList *userlist;
 	guint length;
-	int i = 0;
+	unsigned int i;
+	char **usernames;
 
-	account = purple_accounts_find(accountname, protocol);
-	connection = purple_account_get_connection(account);
-	conv = purple_find_chat (connection, chat_id);
+	conv = chat_info_to_purple_conversation(info);
+	if(!conv) { goto error; }
 
-	l = purple_conv_chat_get_users(PURPLE_CONV_CHAT(conv));
+	userlist = purple_conv_chat_get_users(PURPLE_CONV_CHAT(conv));
+	if(!userlist) { goto error; }
 
-	length = g_list_length(l);
-	res = malloc(length * sizeof *res);
+	length = g_list_length(userlist);
 
-	purple_debug_info("otr", "MPOTR: otrg_plugin_chat_get_participants: participant list: \n");
-	for (; l != NULL; l = l->next) {
-		PurpleConvChatBuddy *chatBuddy = l->data;
+	//TODO Dimitris: what happens if length == 0, undefined allocation should be avoided
+	usernames = malloc(length * sizeof *usernames);
+	if(!usernames) { goto error; }
+
+	for(i=0; i<length; usernames[i++] = NULL);
+
+	for (i = 0; userlist != NULL; userlist = userlist->next, i++) {
+		PurpleConvChatBuddy *chatBuddy = userlist->data;
+		if(!chatBuddy) { goto error_with_usernames; }
+
 		char *participantName = chatBuddy->name;
-		res[i++] = strdup(participantName);
-		purple_debug_info("otr", "MPOTR: otrg_plugin_chat_get_participants: %s\n", participantName);
+		if(!participantName) { goto error_with_usernames; }
+
+		usernames[i] = strdup(participantName);
+		if(!usernames[i]) { goto error_with_usernames; }
 	}
 
 	*size = length;
 
-	return res;
+	return usernames;
+
+error_with_usernames:
+	purple_debug_info("otr", "MPOTR: chat_get_participants: error_with_usernames\n");
+	for(i=0; i<length; i++) {
+		free(usernames[i]);
+		free(usernames);
+	}
+error:
+	purple_debug_info("otr", "MPOTR: chat_get_participants: error\n");
+	return NULL;
 }
 
-char **chat_get_participants_cb(void *opdata, const char *accountname, const char *protocol, otrl_chat_token_t chat_token, unsigned int *size)
+char **chat_get_participants_cb(void *opdata, const const OtrlChatInfo *info, unsigned int *size)
 {
-	int chat_id = chat_token_to_chat_id(chat_token);
-	return chat_get_participants(accountname, protocol, chat_id, size);
+	return chat_get_participants(info, size);
 }
 
 void chat_privkey_create(const char *accountname, const char *protocol)
@@ -880,6 +1005,8 @@ static OtrlMessageAppOps ui_ops = {
 
     /* DIKOMAS */
     plugin_chat_inject_message_cb,
+    chat_handle_event_cb,
+    chat_display_notification_cb,
     chat_get_participants_cb,
     chat_privkey_create_cb,
     chat_fingerprints_write_cb,

@@ -3151,7 +3151,7 @@ static void conversation_destroyed(PurpleConversation *conv, void *data)
 
 /* DIKOMAS */
 
-static void chat_gtk_dialog_new_purple_conv(PurpleConversation *conv)
+static void gtk_dialog_chat_new_purple_conv(PurpleConversation *conv)
 {
 	PidginConversation *gtkconv = PIDGIN_CONVERSATION(conv);
     GtkWidget *bbox;
@@ -3217,26 +3217,10 @@ static void chat_gtk_dialog_new_purple_conv(PurpleConversation *conv)
 	    GtkWidget *label2 = gtk_label_new("test");
 	    gtk_box_pack_start(GTK_BOX(chatlist), label2, FALSE, FALSE, 0);
 	    gtk_widget_show_all(label2);
-		/*
-		button = gtk_button_new_with_label("mpOTR-Start");
-		g_signal_connect(G_OBJECT(button), "button-press-event", G_CALLBACK(chat_button_start_pressed), conv);
-		gtk_box_pack_start(GTK_BOX(bbox), button, FALSE, FALSE, 0);
-		gtk_widget_show_all(button);
-		purple_conversation_set_data(conv, "mpotr-button-start", button);*/
 
+	    //TODO Dimitris: maybe ask library for the chat info...
+	    otrg_gtk_dialog_chat_gui_refresh(conv, LEVEL_NONE);
 	}
-
-	/*
-	button = purple_conversation_get_data(conv, "mpotr-button-end");
-	if (!button) {
-		button = gtk_button_new_with_label("mpOTR-End");
-		g_signal_connect(G_OBJECT(button), "button-press-event", G_CALLBACK(chat_button_end_pressed), conv);
-		gtk_box_pack_start(GTK_BOX(bbox), button, FALSE, FALSE, 0);
-		gtk_widget_show_all(button);
-		purple_conversation_set_data(conv, "mpotr-button-end", button);
-	}*/
-
-	otrg_gtk_dialog_chat_gui_refresh(conv, LEVEL_NONE);
 }
 
 /***********/
@@ -3268,7 +3252,7 @@ static void otrg_gtk_dialog_new_purple_conv(PurpleConversation *conv)
 
     /* DIKOMAS */
     if (purple_conversation_get_type(conv) == PURPLE_CONV_TYPE_CHAT) {
-    	chat_gtk_dialog_new_purple_conv(conv);
+    	gtk_dialog_chat_new_purple_conv(conv);
     	return;
     }
     /* ******* */
