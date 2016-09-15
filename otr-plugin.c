@@ -239,30 +239,35 @@ int chat_handle_event_with_notifiaction(const OtrlChatInfo *info, const OtrlChat
 	int err;
 
 	switch(event->type) {
-			case  OTRL_CHAT_EVENT_STARTING:
-				msg = g_strdup_printf (_("Initializing a new private chat session."));
-				if(!msg) { goto error; }
-				break;
-			case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_OK:
-				part_data = event->data;
-				msg = g_strdup_printf (_("You have met consensus with %s."), part_data->username);
-				if(!msg) { goto error; }
-				break;
-			case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_BROKEN:
-				part_data = event->data;
-				msg = g_strdup_printf (_("You have NOT met consensus with %s."), part_data->username);
-				if(!msg) { goto error; }
-				break;
-			case  OTRL_CHAT_EVENT_CONSENSUS_OK:
-				msg = g_strdup_printf (_("Consensus of the private chat session was OK."));
-				if(!msg) { goto error; }
-				break;
-			case  OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
-				msg = g_strdup_printf (_("Consensus of the private char session was BROKEN."));
-				if(!msg) { goto error; }
-				break;
-			default:
-				goto error;
+		case OTRL_CHAT_EVENT_OFFER_RECEIVED:
+			part_data = event->data;
+			msg = g_strdup_printf (_("%s has requested a private session."), part_data->username);
+			if(!msg) { goto error; }
+			break;
+		case OTRL_CHAT_EVENT_STARTING:
+			msg = g_strdup_printf (_("Initializing a new private chat session..."));
+			if(!msg) { goto error; }
+			break;
+		case OTRL_CHAT_EVENT_STARTED:
+			msg = g_strdup_printf (_("The private session has started successfully."));
+			if(!msg) { goto error; }
+			break;
+		case OTRL_CHAT_EVENT_PLAINTEXT_RECEIVED:
+			// TODO better implement this
+			msg = g_strdup_printf (_("You received an unencrypted message during a private session."));
+			if(!msg) { goto error; }
+			break;
+		case OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
+			part_data = event->data;
+			msg = g_strdup_printf (_("You do NOT have consensus with %s."), part_data->username);
+			if(!msg) { goto error; }
+			break;
+		case OTRL_CHAT_EVENT_FINISHED:
+			msg = g_strdup_printf (_("The private session was finished."));
+			if(!msg) { goto error; }
+			break;
+		default:
+			goto error;
 	}
 
 	err = chat_display_notification(info, msg);
@@ -281,11 +286,12 @@ error:
 void chat_handle_event(const OtrlChatInfo *info, const OtrlChatEvent *event)
 {
 	switch(event->type) {
-		case  OTRL_CHAT_EVENT_STARTING:
-		case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_OK:
-		case  OTRL_CHAT_EVENT_CONSENSUS_PARTICIPANT_BROKEN:
-		case  OTRL_CHAT_EVENT_CONSENSUS_OK:
-		case  OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
+		case OTRL_CHAT_EVENT_OFFER_RECEIVED:
+		case OTRL_CHAT_EVENT_STARTING:
+		case OTRL_CHAT_EVENT_STARTED:
+		case OTRL_CHAT_EVENT_PLAINTEXT_RECEIVED:
+		case OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
+		case OTRL_CHAT_EVENT_FINISHED:
 			chat_handle_event_with_notifiaction(info, event);
 			break;
 		default:
