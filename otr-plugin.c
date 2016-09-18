@@ -176,38 +176,32 @@ error:
 	return NULL;
 }
 
-void plugin_chat_inject_message(const OtrlChatInfo *info, const char *message)
+int plugin_chat_inject_message(const OtrlChatInfo *info, const char *message)
 {
     PurpleConnection *connection;
 	PurpleAccount *account;
-	int chat_id;
+	int chat_id, err;
 
 	account = purple_accounts_find(info->accountname, info->protocol);
+	if(!account) { goto error;}
+
 	chat_id = chat_token_to_chat_id(info->chat_token);
 
     connection = purple_account_get_connection(account);
-    if (!connection) {
-    	//TODO error handling
-    	/*
-        const char *protocol = purple_account_get_protocol_id(account);
-        const char *accountname = purple_account_get_username(account);
-        PurplePlugin *p = purple_find_prpl(protocol);
-        char *msg = g_strdup_printf(_("You are not currently connected to "
-                "account %s (%s)."), accountname,
-                (p && p->info->name) ? p->info->name : _("Unknown"));
-        otrg_dialog_notify_error(accountname, protocol, recipient,
-                _("Not connected"), msg, NULL);
-        g_free(msg);
-        */
-        return;
-    }
+    if (!connection) { goto error; }
 
-    serv_chat_send(connection, chat_id, message, 0);
+    err = serv_chat_send(connection, chat_id, message, 0);
+    if(err < 0) { goto error; }
+
+    return 0;
+
+error:
+	return 1;
 }
 
-static void plugin_chat_inject_message_cb(void *opdata, const OtrlChatInfo *info, const char *message)
+static int plugin_chat_inject_message_cb(void *opdata, const OtrlChatInfo *info, const char *message)
 {
-	plugin_chat_inject_message(info , message);
+	return plugin_chat_inject_message(info , message);
 }
 
 
@@ -234,7 +228,8 @@ void chat_display_notification_cb(void *opdata, const OtrlChatInfo *info, const 
 
 int chat_handle_event_with_notifiaction(const OtrlChatInfo *info, const OtrlChatEvent *event)
 {
-	OtrlChatEventConsensusParticipantData *part_data;
+	OtrlChatEventParticipantData *part_data;
+	OtrlChatEventMessageData *msg_data;
 	gchar *msg = NULL;
 	int err;
 
@@ -252,9 +247,19 @@ int chat_handle_event_with_notifiaction(const OtrlChatInfo *info, const OtrlChat
 			msg = g_strdup_printf (_("The private session has started successfully."));
 			if(!msg) { goto error; }
 			break;
+		case OTRL_CHAT_EVENT_UNVERIFIED_PARTICIPANT:
+			part_data = event->data;
+			msg = g_strdup_printf (_("You have not verified the fingerprint of user: %s."), part_data->username);
+			if(!msg) { goto error; }
+			break;
 		case OTRL_CHAT_EVENT_PLAINTEXT_RECEIVED:
-			// TODO better implement this
-			msg = g_strdup_printf (_("You received an unencrypted message during a private session."));
+			msg_data = event->data;
+			msg = g_strdup_printf (_("<b>The following message received from %s was <i>not</i> encrypted: [</b>%s<b>]</b>"), msg_data->username, msg_data->message);
+			if(!msg) { goto error; }
+			break;
+		case OTRL_CHAT_EVENT_PRIVATE_RECEIVED:
+			part_data = event->data;
+			msg = g_strdup_printf (_("%s sent an encrypted message, while not in a private session."), part_data->username);
 			if(!msg) { goto error; }
 			break;
 		case OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
@@ -289,7 +294,9 @@ void chat_handle_event(const OtrlChatInfo *info, const OtrlChatEvent *event)
 		case OTRL_CHAT_EVENT_OFFER_RECEIVED:
 		case OTRL_CHAT_EVENT_STARTING:
 		case OTRL_CHAT_EVENT_STARTED:
+		case OTRL_CHAT_EVENT_UNVERIFIED_PARTICIPANT:
 		case OTRL_CHAT_EVENT_PLAINTEXT_RECEIVED:
+		case OTRL_CHAT_EVENT_PRIVATE_RECEIVED:
 		case OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
 		case OTRL_CHAT_EVENT_FINISHED:
 			chat_handle_event_with_notifiaction(info, event);
@@ -320,7 +327,8 @@ char **chat_get_participants(const OtrlChatInfo *info, unsigned int *size)
 
 	length = g_list_length(userlist);
 
-	//TODO Dimitris: what happens if length == 0, undefined allocation should be avoided
+	if(length == 0) { goto error; }
+
 	usernames = malloc(length * sizeof *usernames);
 	if(!usernames) { goto error; }
 
@@ -651,18 +659,6 @@ static void gone_insecure_cb(void *opdata, ConnContext *context)
 {
     otrg_dialog_disconnected(context);
 }
-
-/*
- * DIKOMAS
- */
-/*
-static void chat_gone_insecure_cb(void *opdata, OtrlChatContext *context)
-{
-
-    int id = chat_token_to_chat_id(token);
-
-    otrg_dialog_chat_disconnected(conv);
-}*/
 
 static void still_secure_cb(void *opdata, ConnContext *context, int is_reply)
 {
@@ -1404,35 +1400,17 @@ ConnContext* otrg_plugin_conv_to_selected_context(PurpleConversation *conv,
 static void process_conv_create(PurpleConversation *conv)
 {
     otrl_instag_t * selected_instance;
-    //otrl_chat_token_t conversation_token;
     OtrlMessageEvent * msg_event;
     if (!conv) return;
 
     /* If this malloc fails (or the other below), trouble will be
      * unavoidable. */
-    /*********/
     if(conv->type == PURPLE_CONV_TYPE_IM) {
 	selected_instance = g_malloc(sizeof(otrl_instag_t));
         *selected_instance = OTRL_INSTAG_BEST;
     	purple_conversation_set_data(conv, "otr-ui_selected_ctx",
 	    (gpointer)selected_instance);
     }
-    //else if(conv->type == PURPLE_CONV_TYPE_CHAT) { /* DIKOMAS */
-	//int id = purple_conv_chat_get_id(PURPLE_CONV_CHAT(conv));
-	//conversation_token = g_malloc(sizeof(int) + 1); //plus one for null byte
-	//if(!conversation_token) {
-	//	/* TODO: Dimitris: manage this case */
-	//	purple_debug_info("otr", "MPOTR: process_conv_create: !conversation_token\n");
-	//}
-	//memcpy(conversation_token, &id, sizeof(int));
-	//for(unsigned int i=0; i<sizeof(int); i++)
-	//	conversation_token[i] += 1;
-	//conversation_token[sizeof(int)] = '\0';
-	//purple_conversation_set_data(conv, "otr-ui_chat_token",
-	//    (gpointer) conversation_token);
-    //}
-    /********/
-
 
     msg_event = g_malloc(sizeof(OtrlMessageEvent));
     *msg_event = OTRL_MSGEVENT_NONE;

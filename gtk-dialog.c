@@ -1823,7 +1823,6 @@ static void otrg_gtk_dialog_chat_load_fingerprints_list_data(GtkListStore *store
 
 	finger_list = otrg_plugin_userstate->chat_fingerprints;
 
-	//TODO check if finger_list is NULL ????
 	for(finger_list_node = finger_list->head; finger_list_node != NULL; finger_list_node = finger_list_node->next) {
 		fnprnt = finger_list_node->payload;
 		gtk_list_store_append (store, &iter);  /* Acquire an iterator */
@@ -3187,7 +3186,7 @@ static void gtk_dialog_chat_new_purple_conv(PurpleConversation *conv)
 
 	    GtkWidget *menustart = gtk_menu_item_new_with_mnemonic(_("Start _private conversation"));
 	    GtkWidget *menuend = gtk_menu_item_new_with_mnemonic(_("_End private conversation"));
-	    GtkWidget *menufinger = gtk_menu_item_new_with_mnemonic(_("_Verify participants"));
+	    GtkWidget *menufinger = gtk_menu_item_new_with_mnemonic(_("_Verify fingerprints"));
 	    gtk_container_foreach(GTK_CONTAINER(menu), destroy_menuitem, NULL);
 	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menustart);
 	    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menuend);
