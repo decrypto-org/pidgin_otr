@@ -72,6 +72,7 @@ f *  Off-the-Record Messaging plugin for pidgin
 #include <libotr/instag.h>
 
 /* DIMOKAS */
+#include <libotr/chat_info.h>
 #include <libotr/chat_protocol.h>
 #include <libotr/chat_token.h>
 #include <libotr/chat_privkeydh.h>
@@ -152,20 +153,26 @@ int chat_token_to_chat_id(otrl_chat_token_t token)
 	return (int) token;
 }
 
-PurpleConversation *chat_info_to_purple_conversation(const OtrlChatInfo *info)
+PurpleConversation *chat_info_to_purple_conversation(const OtrlChatInfo info)
 {
 	PurpleAccount *account;
 	PurpleConnection *connection;
 	PurpleConversation *conv;
+	char *accountname = NULL, *protocol = NULL;
+	otrl_chat_token_t chat_token;
 	int chat_id;
 
-	account = purple_accounts_find(info->accountname, info->protocol);
+	accountname = otrl_chat_info_get_accountname(info);
+	protocol = otrl_chat_info_get_protocol(info);
+	chat_token = otrl_chat_info_get_chat_token(info);
+
+	account = purple_accounts_find(accountname, protocol);
 	if(!account) { goto error; }
 
 	connection = purple_account_get_connection(account);
 	if(!connection) { goto error; }
 
-	chat_id = chat_token_to_chat_id(info->chat_token);
+	chat_id = chat_token_to_chat_id(chat_token);
 
 	conv = purple_find_chat(connection, chat_id);
 	if(!conv) { goto error; }
@@ -176,16 +183,22 @@ error:
 	return NULL;
 }
 
-int plugin_chat_inject_message(const OtrlChatInfo *info, const char *message)
+int plugin_chat_inject_message(const OtrlChatInfo info, const char *message)
 {
     PurpleConnection *connection;
 	PurpleAccount *account;
+	char *accountname = NULL, *protocol = NULL;
+	otrl_chat_token_t chat_token;
 	int chat_id, err;
 
-	account = purple_accounts_find(info->accountname, info->protocol);
+	accountname = otrl_chat_info_get_accountname(info);
+	protocol = otrl_chat_info_get_protocol(info);
+	chat_token = otrl_chat_info_get_chat_token(info);
+
+	account = purple_accounts_find(accountname, protocol);
 	if(!account) { goto error;}
 
-	chat_id = chat_token_to_chat_id(info->chat_token);
+	chat_id = chat_token_to_chat_id(chat_token);
 
     connection = purple_account_get_connection(account);
     if (!connection) { goto error; }
@@ -199,13 +212,13 @@ error:
 	return 1;
 }
 
-static int plugin_chat_inject_message_cb(void *opdata, const OtrlChatInfo *info, const char *message)
+static int plugin_chat_inject_message_cb(void *opdata, const OtrlChatInfo info, const char *message)
 {
 	return plugin_chat_inject_message(info , message);
 }
 
 
-int chat_display_notification(const OtrlChatInfo *info, const char *notification)
+int chat_display_notification(const OtrlChatInfo info, const char *notification)
 {
 	PurpleConversation *conv;
 
@@ -221,22 +234,26 @@ error:
 	return 1;
 }
 
-void chat_display_notification_cb(void *opdata, const OtrlChatInfo *info, const char *notification)
+void chat_display_notification_cb(void *opdata, const OtrlChatInfo info, const char *notification)
 {
 	chat_display_notification(info, notification);
 }
 
-int chat_handle_event_with_notifiaction(const OtrlChatInfo *info, const OtrlChatEvent *event)
+int chat_handle_event_with_notifiaction(const OtrlChatInfo info, const OtrlChatEvent event)
 {
-	OtrlChatEventParticipantData *part_data;
-	OtrlChatEventMessageData *msg_data;
+	OtrlChatEventType type;
+	OtrlChatEventParticipantData part_data;
+	OtrlChatEventMessageData msg_data;
 	gchar *msg = NULL;
+	char *username = NULL, *message = NULL;
 	int err;
 
-	switch(event->type) {
+	type = otrl_chat_event_get_type(event);
+	switch(type) {
 		case OTRL_CHAT_EVENT_OFFER_RECEIVED:
-			part_data = event->data;
-			msg = g_strdup_printf (_("%s has requested a private session."), part_data->username);
+			part_data = otrl_chat_event_get_data(event);
+			username = otrl_chat_event_participant_data_get_username(part_data);
+			msg = g_strdup_printf (_("%s has requested a private session."), username);
 			if(!msg) { goto error; }
 			break;
 		case OTRL_CHAT_EVENT_STARTING:
@@ -248,23 +265,28 @@ int chat_handle_event_with_notifiaction(const OtrlChatInfo *info, const OtrlChat
 			if(!msg) { goto error; }
 			break;
 		case OTRL_CHAT_EVENT_UNVERIFIED_PARTICIPANT:
-			part_data = event->data;
-			msg = g_strdup_printf (_("You have not verified the fingerprint of user: %s."), part_data->username);
+			part_data = otrl_chat_event_get_data(event);
+			username = otrl_chat_event_participant_data_get_username(part_data);
+			msg = g_strdup_printf (_("You have not verified the fingerprint of user: %s."), username);
 			if(!msg) { goto error; }
 			break;
 		case OTRL_CHAT_EVENT_PLAINTEXT_RECEIVED:
-			msg_data = event->data;
-			msg = g_strdup_printf (_("<b>The following message received from %s was <i>not</i> encrypted: [</b>%s<b>]</b>"), msg_data->username, msg_data->message);
+			msg_data = otrl_chat_event_get_data(event);
+			username = otrl_chat_event_message_data_get_username(msg_data);
+			message = otrl_chat_event_message_data_get_message(msg_data);
+			msg = g_strdup_printf (_("<b>The following message received from %s was <i>not</i> encrypted: [</b>%s<b>]</b>"), username, message);
 			if(!msg) { goto error; }
 			break;
 		case OTRL_CHAT_EVENT_PRIVATE_RECEIVED:
-			part_data = event->data;
-			msg = g_strdup_printf (_("%s sent an encrypted message, while not in a private session."), part_data->username);
+			part_data = otrl_chat_event_get_data(event);
+			otrl_chat_event_participant_data_get_username(part_data);
+			msg = g_strdup_printf (_("%s sent an encrypted message, while not in a private session."), username);
 			if(!msg) { goto error; }
 			break;
 		case OTRL_CHAT_EVENT_CONSENSUS_BROKEN:
-			part_data = event->data;
-			msg = g_strdup_printf (_("You do NOT have consensus with %s."), part_data->username);
+			part_data = otrl_chat_event_get_data(event);
+			otrl_chat_event_participant_data_get_username(part_data);
+			msg = g_strdup_printf (_("You do NOT have consensus with %s."), username);
 			if(!msg) { goto error; }
 			break;
 		case OTRL_CHAT_EVENT_FINISHED:
@@ -288,9 +310,12 @@ error:
 	return 1;
 }
 
-void chat_handle_event(const OtrlChatInfo *info, const OtrlChatEvent *event)
+void chat_handle_event(const OtrlChatInfo info, const OtrlChatEvent event)
 {
-	switch(event->type) {
+	OtrlChatEventType type;
+
+	type = otrl_chat_event_get_type(event);
+	switch(type) {
 		case OTRL_CHAT_EVENT_OFFER_RECEIVED:
 		case OTRL_CHAT_EVENT_STARTING:
 		case OTRL_CHAT_EVENT_STARTED:
@@ -306,12 +331,12 @@ void chat_handle_event(const OtrlChatInfo *info, const OtrlChatEvent *event)
 	}
 }
 
-void chat_handle_event_cb(void *odata, const OtrlChatInfo *info, const OtrlChatEvent *event)
+void chat_handle_event_cb(void *odata, const OtrlChatInfo info, const OtrlChatEvent event)
 {
 	chat_handle_event(info, event);
 }
 
-char **chat_get_participants(const OtrlChatInfo *info, unsigned int *size)
+char **chat_get_participants(const OtrlChatInfo info, unsigned int *size)
 {
 	PurpleConversation *conv;
 	GList *userlist;
@@ -360,7 +385,7 @@ error:
 	return NULL;
 }
 
-char **chat_get_participants_cb(void *opdata, const const OtrlChatInfo *info, unsigned int *size)
+char **chat_get_participants_cb(void *opdata, const const OtrlChatInfo info, unsigned int *size)
 {
 	return chat_get_participants(info, size);
 }
@@ -414,7 +439,7 @@ void chat_fingerprints_write()
 	FILE *chatfingerf = g_fopen(chatfingerfile, "wb");
 	g_free(chatfingerfile);
 	if(chatfingerf) {
-		otrl_chat_fingerprint_write_FILEp(otrg_plugin_userstate, chatfingerf);
+		otrl_chat_protocol_fingerprints_write_file(otrg_plugin_userstate, chatfingerf);
 		fclose(chatfingerf);
 	} else {
 		purple_debug_info("otr", "MPOTR: otr_plugin_load: error reading trusted fingerprints file\n");
@@ -426,29 +451,23 @@ void chat_fingerprints_write_cb(void *opdata)
 	chat_fingerprints_write();
 }
 
-void chat_info_refresh(const OtrlChatInfo *info)
+void chat_info_refresh(const OtrlChatInfo info)
 {
-	PurpleConnection *conn;
-    PurpleAccount *account;
     PurpleConversation *conv;
-	int chat_id = chat_token_to_chat_id(info->chat_token);
+    OtrlChatPrivacyLevel privacy_level;
 
-    account = purple_accounts_find(info->accountname, info->protocol);
-    if (!account) { goto error; }
+    privacy_level = otrl_chat_info_get_privacy_level(info);
 
-    conn = purple_account_get_connection(account);
-    if(!conn) { goto error; }
+	conv = chat_info_to_purple_conversation(info);
+	if(!conv) { goto error; }
 
-    conv = purple_find_chat(conn, chat_id);
-    if(!conv) { goto error; }
-
-    otrg_dialog_chat_gui_refresh(conv, info->level);
+    otrg_dialog_chat_gui_refresh(conv, privacy_level);
 
 error:
 	return;
 }
 
-void chat_info_refresh_cb(void *opdata, const OtrlChatInfo *info)
+void chat_info_refresh_cb(void *opdata, const OtrlChatInfo info)
 {
 	chat_info_refresh(info);
 }
@@ -1283,14 +1302,14 @@ static gboolean process_sending_chat(PurpleAccount *account, char **message,
 }
 
 
-void otrg_plugin_chat_verify_fingerprint(OtrlChatFingerprint *fnprnt)
+void otrg_plugin_chat_verify_fingerprint(OtrlChatFingerprint fnprnt)
 {
-	otrl_chat_fingerprint_verify(otrg_plugin_userstate, &ui_ops, fnprnt);
+	otrl_chat_protocol_fingerprint_verify(otrg_plugin_userstate, &ui_ops, fnprnt);
 }
 
-void otrg_plugin_chat_forget_fingerprint(OtrlChatFingerprint *fnprnt)
+void otrg_plugin_chat_forget_fingerprint(OtrlChatFingerprint fnprnt)
 {
-	otrl_chat_fingerprint_forget(otrg_plugin_userstate, &ui_ops, fnprnt);
+	otrl_chat_protocol_fingerprint_forget(otrg_plugin_userstate, &ui_ops, fnprnt);
 }
 
 void otrg_plugin_chat_send_query(PurpleConversation *conv)
@@ -1834,7 +1853,7 @@ static gboolean otr_plugin_load(PurplePlugin *handle)
 	FILE *chatfingerf = g_fopen(chatfingerfile, "rb");
 	g_free(chatfingerfile);
 	if(chatfingerf) {
-		otrl_chat_fingerprint_read_FILEp(otrg_plugin_userstate, chatfingerf);
+		otrl_chat_protocol_fingerprints_read_file(otrg_plugin_userstate, chatfingerf);
 		fclose(chatfingerf);
 	} else {
 		purple_debug_info("otr", "MPOTR: otr_plugin_load: error reading trusted fingerprints file\n");

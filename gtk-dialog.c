@@ -1812,28 +1812,43 @@ enum
    N_COLUMNS
 };
 
-static void otrg_gtk_dialog_chat_load_fingerprints_list_data(GtkListStore *store)
+static int otrg_gtk_dialog_chat_load_fingerprints_list_data(GtkListStore *store)
 {
-	OtrlList *finger_list;
-	OtrlListNode *finger_list_node;
-	OtrlChatFingerprint *fnprnt;
+	OtrlListIterator list_iter;
+	OtrlListNode node;
+	OtrlChatFingerprint fnprnt;
 	GtkTreeIter iter;
+	char *accountname = NULL, *username = NULL, *bytes_hex = NULL;
+	unsigned char *bytes = NULL;
 
-	gtk_list_store_clear (store);
+	gtk_list_store_clear(store);
 
-	finger_list = otrg_plugin_userstate->chat_fingerprints;
+	list_iter = otrl_list_iterator_new(otrg_plugin_userstate->chat_fingerprints);
+	if(!list_iter) { goto error; }
+	while(otrl_list_iterator_has_next(list_iter)) {
+		node = otrl_list_iterator_next(list_iter);
+		fnprnt = otrl_list_node_get_payload(node);
 
-	for(finger_list_node = finger_list->head; finger_list_node != NULL; finger_list_node = finger_list_node->next) {
-		fnprnt = finger_list_node->payload;
+		accountname = otrl_chat_fingerprint_get_accountname(fnprnt);
+		username = otrl_chat_fingerprint_get_username(fnprnt);
+		bytes = otrl_chat_fingerprint_get_bytes(fnprnt);
+		bytes_hex = otrl_chat_fingerprint_bytes_to_hex(bytes); /* TODO remember to free this */
+
 		gtk_list_store_append (store, &iter);  /* Acquire an iterator */
 		gtk_list_store_set (store, &iter,
-								SCREENNAME_COLUMN, fnprnt->accountname,
-								VERIFIED_COLUMN, (fnprnt->isTrusted)? TRUE : FALSE,
-								ACCOUNT_COLUMN, fnprnt->username,
-								FINGERPRINT_COLUMN, otrl_chat_fingerprint_bytes_to_hex(fnprnt->fingerprint), /* TODO remember to free this */
+								SCREENNAME_COLUMN, accountname,
+								VERIFIED_COLUMN, otrl_chat_fingerprint_is_trusted(fnprnt) ? TRUE : FALSE,
+								ACCOUNT_COLUMN, username,
+								FINGERPRINT_COLUMN, bytes_hex,
 								POINTER_COLUMN, fnprnt,
 			                    -1);
 	}
+	otrl_list_iterator_free(list_iter);
+
+	return 0;
+
+error:
+	return 1;
 }
 
 static void otrg_gtk_dialog_chat_fingerprint_verify_clicked(GtkTreeView *tree_view, gpointer user_data)
@@ -1982,7 +1997,7 @@ static GtkWidget * otrg_gtk_dialog_chat_fingerprints_window_open()
 }
 
 
-static void otrg_gtk_dialog_chat_label_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+static void otrg_gtk_dialog_chat_label_refresh(PurpleConversation *conv, OtrlChatPrivacyLevel level)
 {
     GtkWidget *label;
     char *markup;
@@ -1991,13 +2006,13 @@ static void otrg_gtk_dialog_chat_label_refresh(PurpleConversation *conv, OtrlCha
 	if(!label) { goto error; }
 
 	markup = g_strdup_printf(" <span color=\"%s\">%s</span>",
-		    level == LEVEL_FINISHED ? "#000000" :
-		    level == LEVEL_PRIVATE ? "#00a000" :
-		    level == LEVEL_UNVERIFIED ? "#a06000" :
+		    level == OTRL_CHAT_PRIVACY_LEVEL_FINISHED ? "#000000" :
+		    level == OTRL_CHAT_PRIVACY_LEVEL_PRIVATE ? "#00a000" :
+		    level == OTRL_CHAT_PRIVACY_LEVEL_UNVERIFIED ? "#a06000" :
 		    "#ff0000",
-		    level == LEVEL_FINISHED ? _("Finished") :
-		    level == LEVEL_PRIVATE ? _("Private") :
-		    level == LEVEL_UNVERIFIED ? _("Unverified") :
+		    level == OTRL_CHAT_PRIVACY_LEVEL_FINISHED ? _("Finished") :
+		    level == OTRL_CHAT_PRIVACY_LEVEL_PRIVATE ? _("Private") :
+		    level == OTRL_CHAT_PRIVACY_LEVEL_UNVERIFIED ? _("Unverified") :
 		    _("Not private"));
 
 	gtk_label_set_markup(GTK_LABEL(label), markup);
@@ -2007,7 +2022,7 @@ error:
 	return;
 }
 
-void otrg_gtk_dialog_chat_menu_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+void otrg_gtk_dialog_chat_menu_refresh(PurpleConversation *conv, OtrlChatPrivacyLevel level)
 {
 	GtkWidget *menustart, *menuend;
 
@@ -2018,16 +2033,19 @@ void otrg_gtk_dialog_chat_menu_refresh(PurpleConversation *conv, OtrlChatInfoPri
 	if(!menuend) { goto error; }
 
 	switch(level) {
-		case LEVEL_NONE:
-		case LEVEL_FINISHED:
+		case OTRL_CHAT_PRIVACY_LEVEL_NONE:
+		case OTRL_CHAT_PRIVACY_LEVEL_FINISHED:
 			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 1);
 			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 0);
 			break;
-		case LEVEL_UNVERIFIED:
-		case LEVEL_PRIVATE:
+		case OTRL_CHAT_PRIVACY_LEVEL_UNVERIFIED:
+		case OTRL_CHAT_PRIVACY_LEVEL_PRIVATE:
 			gtk_widget_set_sensitive(GTK_WIDGET(menustart), 0);
 			gtk_widget_set_sensitive(GTK_WIDGET(menuend), 1);
 			break;
+		case OTRL_CHAT_PRIVACY_LEVEL_UNKNOWN:
+		default:
+			goto error;
 	}
 
 error:
@@ -2068,7 +2086,7 @@ static gboolean otrg_gtk_dialog_chat_button_pressed(GtkWidget *w, GdkEventButton
 	return TRUE;
 }
 
-static void otrg_gtk_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+static void otrg_gtk_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatPrivacyLevel level)
 {
 	otrg_gtk_dialog_chat_label_refresh(conv, level);
 	otrg_gtk_dialog_chat_menu_refresh(conv, level);
@@ -3218,7 +3236,7 @@ static void gtk_dialog_chat_new_purple_conv(PurpleConversation *conv)
 	    gtk_widget_show_all(label2);
 
 	    //TODO Dimitris: maybe ask library for the chat info...
-	    otrg_gtk_dialog_chat_gui_refresh(conv, LEVEL_NONE);
+	    otrg_gtk_dialog_chat_gui_refresh(conv, OTRL_CHAT_PRIVACY_LEVEL_NONE);
 	}
 }
 

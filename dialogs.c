@@ -209,7 +209,7 @@ void otrg_dialog_remove_conv(PurpleConversation *conv)
 }
 
 /* DIKOMAS */
-void otrg_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatInfoPrivacyLevel level)
+void otrg_dialog_chat_gui_refresh(PurpleConversation *conv, OtrlChatPrivacyLevel level)
 {
 	ui_ops->chat_gui_refresh(conv, level);
 }
