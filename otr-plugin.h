@@ -123,8 +123,9 @@ int otrg_plugin_proto_supports_otr(const char *proto);
 
 
 /* DIKOMAS */
-void otrg_plugin_chat_verify_fingerprint(OtrlChatFingerprint fnprnt);
-void otrg_plugin_chat_forget_fingerprint(OtrlChatFingerprint fnprnt);
+void otrg_plugin_chat_verify_fingerprint(OtrlChatFingerprintPtr fnprnt);
+void otrg_plugin_chat_forget_fingerprint(OtrlChatFingerprintPtr fnprnt);
+void otrg_plugin_chat_id_key_generate_new(const char *accountname, const char *protocol);
 void otrg_plugin_chat_send_query(PurpleConversation *conv);
 void otrg_plugin_chat_shutdown(PurpleConversation *conv);
 /* ******* */
